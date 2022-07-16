@@ -1,51 +1,67 @@
-const fs = require("fs/promises");
-const path = require("path");
-const contactsPath = path.join(__dirname, "/contacts.json");
-const shortid = require("shortid");
+const contactModel = require("../db/contactModel");
+const { NotFound, Conflict } = require("http-errors");
 
 const listContacts = async () => {
-  const data = await fs.readFile(contactsPath, "utf8");
-  return JSON.parse(data);
+  try {
+    const contacts = await contactModel.find({});
+    return contacts;
+  } catch (error) {
+    console.error(error.message);
+  }
 };
 
 const getContactById = async (contactId) => {
-  const contacts = await listContacts();
-  const contact = contacts.find(({ id }) => id.toString() === contactId);
-  return contact;
+  try {
+    const contactById = await contactModel.findById(contactId);
+    return contactById;
+  } catch (error) {
+    console.error(error);
+  }
 };
 
 const removeContact = async (contactId) => {
-  const contacts = await listContacts();
-  const contact = contacts.find(({ id }) => id.toString() === contactId);
-  if (!contact) return;
-  const newContacts = contacts.filter(({ id }) => id.toString() !== contactId);
-  await fs.writeFile(
-    contactsPath,
-    JSON.stringify(newContacts, null, 2),
-    "utf8"
-  );
-  return contact;
+  try {
+    const contacts = await contactModel.deleteOne({ _id: contactId });
+    if (contacts.deletedCount === 0) {
+      throw new NotFound(`User with id '${contactId}' not found`);
+    }
+
+    return { message: "Contact deleted", status: 200 };
+  } catch (error) {
+    console.error(error);
+  }
 };
 
 const addContact = async (body) => {
-  const contacts = await listContacts();
-  const newContact = { id: shortid.generate(), ...body };
-  const newContacts = [...contacts, newContact];
-  await fs.writeFile(
-    contactsPath,
-    JSON.stringify(newContacts, null, 2),
-    "utf8"
-  );
-  return newContact;
+  const existingUser = await contactModel.findOne({ email: body.email });
+  if (existingUser) {
+    throw new Conflict(`User with such email "${body.email}" already exists`);
+  }
+  return await contactModel.create(body);
 };
 
 const updateContact = async (contactId, body) => {
-  const contacts = await listContacts();
-  const index = contacts.findIndex(({ id }) => id.toString() === contactId);
-  if (index === -1) return;
-  contacts[index] = { ...contacts[index], ...body };
-  await fs.writeFile(contactsPath, JSON.stringify(contacts, null, 2), "utf8");
-  return contacts[index];
+  try {
+    const existingUser = await contactModel.findById(contactId);
+
+    if (!existingUser) {
+      throw new NotFound(`User with id '${contactId}' not found`);
+    }
+
+    return await contactModel.findByIdAndUpdate(contactId, body);
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+const updateStatusContact = async (contactId, body) => {
+  const { favorite } = body;
+  try {
+    await contactModel.findByIdAndUpdate(contactId, { $set: { favorite } });
+    return await contactModel.findById(contactId);
+  } catch (error) {
+    console.error(error.message);
+  }
 };
 
 module.exports = {
@@ -54,4 +70,5 @@ module.exports = {
   removeContact,
   addContact,
   updateContact,
+  updateStatusContact,
 };
